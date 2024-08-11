@@ -1,6 +1,6 @@
 {
   "name": "telegram-gemini-bot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A Telegram bot for images",
   "main": "bot.mjs",
   "scripts": {
