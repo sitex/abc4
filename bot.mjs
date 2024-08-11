@@ -199,11 +199,11 @@ if (process.env.NODE_ENV !== 'production') {
     app.use(express.json());
     const PORT = process.env.PORT || 3000;
 
-    app.post('/webhook', handler);
+    app.post('/api/bot', handler);
 
     app.listen(PORT, () => {
       logger.info(`Local server running on port ${PORT}`);
-      logger.info(`Webhook URL: http://localhost:${PORT}/webhook`);
+      logger.info(`Webhook URL: http://localhost:${PORT}/api/bot`);
     });
   });
 }
