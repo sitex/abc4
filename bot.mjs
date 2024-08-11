@@ -1,82 +1,142 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GoogleAIFileManager } from '@google/generative-ai/server';
 import axios from 'axios';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN);
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const fileManager = new GoogleAIFileManager(GEMINI_API_KEY);
+if (!TELEGRAM_BOT_TOKEN) {
+  throw new Error('TELEGRAM_BOT_TOKEN is not set in environment variables');
+}
 
-async function handlePhoto(msg) {
+if (!GEMINI_API_KEY) {
+  throw new Error('GEMINI_API_KEY is not set in environment variables');
+}
+
+export const bot = new TelegramBot(TELEGRAM_BOT_TOKEN);
+export const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB, adjust as needed
+
+export async function handlePhoto(msg) {
   const chatId = msg.chat.id;
-  console.log('Received photo message');
+  console.log('Received photo message:', JSON.stringify(msg, null, 2));
   try {
+    // Get file ID
     const fileId = msg.photo[msg.photo.length - 1].file_id;
     console.log('File ID:', fileId);
-    const fileLink = await bot.getFileLink(fileId);
-    console.log('File Link:', fileLink);
+
+    // Get file link
+    let fileLink;
+    try {
+      fileLink = await bot.getFileLink(fileId);
+      console.log('File Link:', fileLink);
+    } catch (error) {
+      console.error('Error getting file link:', error);
+      throw new Error('Failed to get file link from Telegram');
+    }
 
     // Download the image
-    console.log('Downloading image...');
-    const imageResponse = await axios.get(fileLink, { responseType: 'arraybuffer' });
-    const imageBuffer = Buffer.from(imageResponse.data, 'binary');
-    console.log('Image downloaded');
+    let imageBuffer;
+    try {
+      console.log('Downloading image...');
+      const imageResponse = await axios.get(fileLink, { responseType: 'arraybuffer' });
+      imageBuffer = Buffer.from(imageResponse.data);
+      console.log('Image downloaded, size:', imageBuffer.length, 'bytes');
 
-    // Upload the file to Google's servers
-    console.log('Uploading to Google servers...');
-    const uploadResult = await fileManager.uploadFile(imageBuffer, {
-      mimeType: 'image/jpeg',
-      displayName: `TelegramImage_${Date.now()}.jpg`,
-    });
-    console.log(`Uploaded file ${uploadResult.file.displayName} as: ${uploadResult.file.uri}`);
+      if (imageBuffer.length > MAX_FILE_SIZE) {
+        throw new Error(`Image size (${imageBuffer.length} bytes) exceeds the maximum allowed size of ${MAX_FILE_SIZE} bytes`);
+      }
+    } catch (error) {
+      console.error('Error downloading image:', error);
+      throw new Error('Failed to download image from Telegram');
+    }
 
     // Use Gemini to analyze the image
-    console.log('Analyzing image with Gemini...');
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-vision' });
+    let generatedResponse;
+    try {
+      console.log('Analyzing image with Gemini...');
 
-    const result = await model.generateContent([
-      {
-        fileData: {
-          mimeType: uploadResult.file.mimeType,
-          fileUri: uploadResult.file.uri
-        }
-      },
-      { text: "Analyze this image and describe what you see. Provide your analysis in Markdown format, using appropriate headers, lists, and emphasis where relevant." },
-    ]);
+      const model = genAI.getGenerativeModel({
+        model: "gemini-1.5-flash",
+      });
 
-    const generatedResponse = await result.response;
-    const markdown = generatedResponse.text();
-    console.log('Analysis complete');
+      const result = await model.generateContent([
+        {
+          inlineData: {
+            data: imageBuffer.toString('base64'),
+            mimeType: 'image/jpeg'
+          }
+        },
+        {
+          text: "Analyze this image and describe what you see. Provide your analysis in Markdown format, using appropriate headers, lists, and emphasis where relevant."
+        },
+      ]);
 
-    // Send the analysis back to the user in Markdown format
-    console.log('Sending response to user...');
-    await bot.sendMessage(chatId, markdown, { parse_mode: 'Markdown' });
-    console.log('Response sent');
+      generatedResponse = await result.response;
+      console.log('Analysis complete');
+    } catch (error) {
+      console.error('Error analyzing image with Gemini:', error);
+      throw new Error('Failed to analyze image with Gemini API');
+    }
+
+    // Send the analysis back to the user
+    try {
+      console.log('Sending response to user...');
+      const markdown = generatedResponse.text();
+      await bot.sendMessage(chatId, markdown, { parse_mode: 'Markdown' });
+      console.log('Response sent');
+    } catch (error) {
+      console.error('Error sending response to user:', error);
+      throw new Error('Failed to send analysis to user');
+    }
   } catch (error) {
-    console.error('Error:', error);
-    await bot.sendMessage(chatId, 'Sorry, there was an error processing your image.');
+    console.error('Error in handlePhoto:', error);
+    console.error('Stack trace:', error.stack);
+    await bot.sendMessage(chatId, `Sorry, there was an error processing your image: ${error.message}`);
   }
 }
 
 export default async function handler(req, res) {
   console.log('Webhook handler called');
+
+  const timeout = setTimeout(() => {
+    console.error('Handler timed out');
+    res.status(504).send('Gateway Timeout');
+  }, 25000); // 25 seconds timeout
+
   try {
     const { body } = req;
+    console.log('Received body:', JSON.stringify(body, null, 2));
+
     if (body.message && body.message.photo) {
       await handlePhoto(body.message);
+      clearTimeout(timeout);
+      res.status(200).send('OK');
     } else if (body.message && body.message.text) {
       const chatId = body.message.chat.id;
       console.log('Received text message:', body.message.text);
       await bot.sendMessage(chatId, 'I received your message. Please send me an image to analyze.');
+      clearTimeout(timeout);
+      res.status(200).send('OK');
+    } else {
+      console.log('Received unknown message type');
+      clearTimeout(timeout);
+      res.status(400).send('Bad Request: Unknown message type');
     }
-    res.status(200).send('OK');
     console.log('Update handled successfully');
   } catch (error) {
     console.error('Error in webhook handler:', error);
-    res.status(500).send('Internal Server Error');
+    console.error('Stack trace:', error.stack);
+    clearTimeout(timeout);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message,
+      stack: error.stack
+    });
   }
 }
 
