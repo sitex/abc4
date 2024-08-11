@@ -19,7 +19,7 @@ if (!GEMINI_API_KEY) {
 export const bot = new TelegramBot(TELEGRAM_BOT_TOKEN);
 export const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB, adjust as needed
+const MAX_FILE_SIZE = 40 * 1024 * 1024; // 40MB, adjust as needed
 
 export async function handlePhoto(msg) {
   const chatId = msg.chat.id;
@@ -60,7 +60,12 @@ export async function handlePhoto(msg) {
     try {
       console.log('Analyzing image with Gemini...');
 
+      const generationConfig = {
+        temperature: 0,
+      };
+
       const model = genAI.getGenerativeModel({
+        generationConfig: generationConfig,
         model: "gemini-1.5-flash",
       });
 
@@ -72,7 +77,7 @@ export async function handlePhoto(msg) {
           }
         },
         {
-          text: "Analyze this image and describe what you see. Provide your analysis in Markdown format, using appropriate headers, lists, and emphasis where relevant."
+          text: "Analyze this image and describe what you see. Provide your analysis in Markdown format, using appropriate headers, lists, tables and emphasis where relevant."
         },
       ]);
 
