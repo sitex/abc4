@@ -1,7 +1,22 @@
 {
+  "name": "telegram-image-bot",
+  "version": "1.0.0",
+  "description": "A Telegram bot for images",
+  "main": "bot.mjs",
+  "scripts": {
+    "start": "node bot.mjs",
+    "dev": "nodemon bot.mjs"
+  },
   "dependencies": {
+    "dotenv": "^16.3.1",
     "@google/generative-ai": "^0.16.0",
     "axios": "^1.7.3",
     "node-telegram-bot-api": "^0.66.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
