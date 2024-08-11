@@ -5,7 +5,7 @@
   "main": "bot.mjs",
   "scripts": {
     "start": "node bot.mjs",
-    "dev": "nodemon local.mjs",
+    "dev": "nodemon bot.mjs",
     "webhook:set": "node set-webhook.js set",
     "webhook:delete": "node set-webhook.js delete",
     "webhook:info": "node set-webhook.js info",
