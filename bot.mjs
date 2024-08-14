@@ -51,7 +51,16 @@ async function analyzeImage(imageBuffer, chatId) {
       return analysisCache.get(imageHash);
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({
+      generationConfig: {
+        temperature: 0,
+        // topP: 0.95,
+        // topK: 64,
+        // maxOutputTokens: 8192,
+        // responseMimeType: "text/plain",
+      },
+      model: 'gemini-1.5-flash'
+    });
 
     const prompt = "Analyze this image and provide a detailed description. Include:\n" +
                    "1. Main subjects or objects\n" +
