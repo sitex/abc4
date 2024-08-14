@@ -29,77 +29,60 @@ const logger = {
 
 async function analyzeImage(imageBuffer, chatId) {
   try {
+    logger.info('Initializing Gemini model...');
+    const model = genAI.getGenerativeModel({
+      generationConfig: {
+        temperature: 0,
+        // Uncomment the following lines if you want to use these parameters
+        // topP: 0.95,
+        // topK: 64,
+        // maxOutputTokens: 8192,
+        // responseMimeType: "text/plain",
+      },
+      model: 'gemini-1.5-flash'
+    });
+    logger.info('Gemini model initialized successfully');
+
     logger.info('Analyzing image with Gemini...');
-    let model;
-    try {
-      model = genAI.getGenerativeModel({
-        generationConfig: {
-          temperature: 0,
-          // topP: 0.95,
-          // topK: 64,
-          // maxOutputTokens: 8192,
-          // responseMimeType: "text/plain",
-        },
-        model: 'gemini-1.5-flash'
-      });
-      logger.info('Gemini model initialized successfully');
-    } catch (modelError) {
-      logger.error('Error initializing Gemini model:', modelError);
-      throw new Error(`Failed to initialize Gemini model: ${modelError.message}`);
-    }
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          data: imageBuffer.toString('base64'),
+          mimeType: 'image/jpeg'
+        }
+      },
+      { text: "Analyze this image and describe what you see. Provide your analysis in Markdown format, using appropriate headers, lists, and emphasis where relevant." },
+    ]);
 
-    let result;
-    try {
-      result = await model.generateContent([
-        {
-          inlineData: {
-            data: imageBuffer.toString('base64'),
-            mimeType: 'image/jpeg'
-          }
-        },
-        { text: "Analyze this image and describe what you see. Provide your analysis in Markdown format, using appropriate headers, lists, and emphasis where relevant." },
-      ]);
-      logger.info('Gemini API call completed');
-    } catch (generateError) {
-      logger.error('Error generating content with Gemini:', generateError);
-      logger.error('Full generate error object:', JSON.stringify(generateError, null, 2));
-      throw new Error(`Failed to generate content with Gemini: ${generateError.message}`);
-    }
-
-    logger.info('Checking Gemini API response...');
-    if (!result) {
-      logger.error('No result object returned from Gemini API');
-      throw new Error('No result received from Gemini API');
-    }
+    logger.info('Gemini API response received');
 
     if (!result.response) {
-      logger.error('No response in result object:', JSON.stringify(result, null, 2));
-      throw new Error('No response in Gemini API result');
+      logger.error('No response from Gemini API');
+      throw new Error('No response received from Gemini API');
     }
 
     const generatedResponse = result.response;
-    logger.info('Response object retrieved from result');
+    logger.info('Analysis complete');
 
     if (!generatedResponse.text) {
-      logger.error('No text in generated response:', JSON.stringify(generatedResponse, null, 2));
+      logger.error('No text in Gemini API response');
       throw new Error('No text content in Gemini API response');
     }
 
-    const markdown = generatedResponse.text();
-    logger.info('Response content:', markdown.substring(0, 100) + '...');
+    let markdown = generatedResponse.text();
+    logger.info('Original response content:', markdown.substring(0, 100) + '...');
 
-    try {
-      await bot.sendMessage(chatId, markdown, { parse_mode: 'Markdown' });
-      logger.info('Response sent successfully to user');
-    } catch (sendError) {
-      logger.error('Error sending message to user:', sendError);
-      throw new Error(`Failed to send analysis to user: ${sendError.message}`);
-    }
+    // Sanitize the markdown
+    markdown = sanitizeMarkdown(markdown);
+    logger.info('Sanitized response content:', markdown.substring(0, 100) + '...');
 
+    // Send the analysis back to the user
+    logger.info('Sending response to user...');
+    await bot.sendMessage(chatId, markdown, { parse_mode: 'Markdown' });
+    logger.info('Response sent successfully');
   } catch (error) {
-    logger.error('Error in analyzeImage function:', error);
+    logger.error('Error analyzing image with Gemini:', error);
     logger.error('Full error object:', JSON.stringify(error, null, 2));
-    logger.error('Error stack:', error.stack);
 
     if (error.message.includes('SAFETY') || error.message.includes('blocked due to safety')) {
       throw new Error('The image content could not be analyzed due to safety concerns. Please try a different image.');
@@ -107,6 +90,8 @@ async function analyzeImage(imageBuffer, chatId) {
       throw new Error('Gemini API rate limit exceeded. Please try again later.');
     } else if (error.message.includes('network')) {
       throw new Error('Network error occurred while connecting to Gemini API. Please check your internet connection.');
+    } else if (error.message.includes("can't parse entities")) {
+      throw new Error('There was an issue formatting the analysis. Ill try to send it without special formatting.');
     } else {
       throw new Error(`Failed to analyze image with Gemini API: ${error.message}`);
     }
@@ -117,9 +102,11 @@ async function handlePhoto(msg) {
   const chatId = msg.chat.id;
   logger.info('Received photo message. Chat ID:', chatId);
   try {
+    // Get the file ID of the largest photo size
     const fileId = msg.photo[msg.photo.length - 1].file_id;
     logger.info('Using file ID:', fileId);
 
+    // Get file link
     let fileLink;
     try {
       fileLink = await bot.getFileLink(fileId);
@@ -129,6 +116,7 @@ async function handlePhoto(msg) {
       throw new Error('Failed to get file link from Telegram: ' + error.message);
     }
 
+    // Download the image
     let imageBuffer;
     try {
       logger.info('Downloading image...');
@@ -144,6 +132,7 @@ async function handlePhoto(msg) {
       throw new Error('Failed to download image from Telegram: ' + error.message);
     }
 
+    // Analyze the image
     logger.info('Calling analyzeImage function...');
     await analyzeImage(imageBuffer, chatId);
     logger.info('analyzeImage function completed successfully');
@@ -162,11 +151,28 @@ async function handlePhoto(msg) {
       userMessage = "I had trouble accessing the image you sent. Could you try uploading it again?";
     } else if (error.message.includes('Failed to download image')) {
       userMessage = "I couldn't download the image you sent. There might be an issue with the file. Could you try sending a different image?";
+    } else if (error.message.includes('exceeds the maximum allowed size')) {
+      userMessage = "The image you sent is too large for me to process. Please try sending a smaller image (under 4MB).";
+    } else if (error.message.includes("can't parse entities")) {
+      // If Markdown parsing failed, try to send the message without Markdown
+      try {
+        const plainText = error.message.replace(/(\*|_|`)/g, ''); // Remove Markdown symbols
+        await bot.sendMessage(chatId, "I analyzed your image, but had trouble formatting the response. Here's the analysis without special formatting:");
+        await bot.sendMessage(chatId, plainText);
+        return;
+      } catch (sendError) {
+        userMessage = "I analyzed your image but had trouble sending the full response. Here's a summary: The image was successfully processed, but I couldn't display the full analysis due to a technical issue.";
+      }
     } else {
       userMessage = `I encountered an unexpected error while processing your image. Here's what happened: ${error.message}`;
     }
 
-    await bot.sendMessage(chatId, userMessage);
+    // Send the error message to the user
+    try {
+      await bot.sendMessage(chatId, userMessage);
+    } catch (sendError) {
+      logger.error('Error sending error message to user:', sendError);
+    }
   }
 }
 
