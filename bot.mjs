@@ -67,18 +67,18 @@ async function analyzeImage(imageBuffer, chatId) {
 
 async function handlePhoto(msg) {
   const chatId = msg.chat.id;
-  logger.info('Received photo message:', JSON.stringify(msg, null, 2));
+  logger.info('Received photo message. Chat ID:', chatId);
   try {
     const fileId = msg.photo[msg.photo.length - 1].file_id;
-    logger.info('File ID:', fileId);
+    logger.info('Using file ID:', fileId);
 
     let fileLink;
     try {
       fileLink = await bot.getFileLink(fileId);
-      logger.info('File Link:', fileLink);
+      logger.info('File Link obtained:', fileLink);
     } catch (error) {
       logger.error('Error getting file link:', error);
-      throw new Error('Failed to get file link from Telegram');
+      throw new Error('Failed to get file link from Telegram: ' + error.message);
     }
 
     let imageBuffer;
@@ -86,21 +86,35 @@ async function handlePhoto(msg) {
       logger.info('Downloading image...');
       const imageResponse = await axios.get(fileLink, { responseType: 'arraybuffer' });
       imageBuffer = Buffer.from(imageResponse.data);
-      logger.info('Image downloaded, size:', imageBuffer.length, 'bytes');
+      logger.info('Image downloaded successfully. Size:', imageBuffer.length, 'bytes');
 
       if (imageBuffer.length > MAX_FILE_SIZE) {
         throw new Error(`Image size (${imageBuffer.length} bytes) exceeds the maximum allowed size of ${MAX_FILE_SIZE} bytes`);
       }
     } catch (error) {
       logger.error('Error downloading image:', error);
-      throw new Error('Failed to download image from Telegram');
+      throw new Error('Failed to download image from Telegram: ' + error.message);
     }
 
+    logger.info('Calling analyzeImage function...');
     await analyzeImage(imageBuffer, chatId);
+    logger.info('analyzeImage function completed successfully');
   } catch (error) {
     logger.error('Error in handlePhoto:', error);
     logger.error('Stack trace:', error.stack);
-    await bot.sendMessage(chatId, `Sorry, there was an error processing your image: ${error.message}`);
+
+    let userMessage;
+    if (error.message.includes('safety concerns')) {
+      userMessage = "I'm sorry, but I couldn't analyze this image due to potential safety concerns. Could you please try sending a different image?";
+    } else if (error.message.includes('rate limit')) {
+      userMessage = "I'm currently experiencing high demand. Please try again in a few minutes.";
+    } else if (error.message.includes('network')) {
+      userMessage = "I'm having trouble connecting to my image analysis service. Please try again later.";
+    } else {
+      userMessage = `I encountered an error while processing your image. Here's what happened: ${error.message}`;
+    }
+
+    await bot.sendMessage(chatId, userMessage);
   }
 }
 
