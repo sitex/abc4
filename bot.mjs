@@ -8,19 +8,19 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB
 
 if (!TELEGRAM_BOT_TOKEN || !GEMINI_API_KEY) {
-  throw new Error('TELEGRAM_BOT_TOKEN or GEMINI_API_KEY is not set in environment variables');
+  throw new Error('TELEGRAM_BOT_TOKEN или GEMINI_API_KEY не установлены в переменных окружения');
 }
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN);
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 const logger = {
-  info: (message, ...args) => console.log(`[INFO] ${message}`, ...args),
-  warn: (message, ...args) => console.warn(`[WARN] ${message}`, ...args),
-  error: (message, ...args) => console.error(`[ERROR] ${message}`, ...args),
+  info: (message, ...args) => console.log(`[ИНФО] ${message}`, ...args),
+  warn: (message, ...args) => console.warn(`[ПРЕДУПРЕЖДЕНИЕ] ${message}`, ...args),
+  error: (message, ...args) => console.error(`[ОШИБКА] ${message}`, ...args),
 };
 
-// Simple in-memory cache (consider using Redis or another persistent store for production)
+// Простой кэш в памяти (для продакшена рекомендуется использовать Redis или другое постоянное хранилище)
 const analysisCache = new Map();
 
 function sanitizeMarkdown(text) {
@@ -47,7 +47,7 @@ async function analyzeImage(imageBuffer, chatId) {
   try {
     const imageHash = crypto.createHash('md5').update(imageBuffer).digest('hex');
     if (analysisCache.has(imageHash)) {
-      logger.info('Using cached analysis');
+      logger.info('Используется кэшированный анализ');
       return analysisCache.get(imageHash);
     }
 
@@ -62,13 +62,13 @@ async function analyzeImage(imageBuffer, chatId) {
       model: 'gemini-1.5-flash'
     });
 
-    const prompt = "Analyze this image and provide a detailed description. Include:\n" +
-                   "1. Main subjects or objects\n" +
-                   "2. Colors and visual elements\n" +
-                   "3. Mood or atmosphere\n" +
-                   "4. Any text visible in the image\n" +
-                   "5. Potential context or setting\n" +
-                   "Be concise but thorough. Format your response in easy-to-read Markdown.";
+    const prompt = "Проанализируйте это изображение и предоставьте подробное описание на русском языке. Включите:\n" +
+                   "1. Основные предметы или объекты\n" +
+                   "2. Цвета и визуальные элементы\n" +
+                   "3. Настроение или атмосферу\n" +
+                   "4. Любой видимый текст на изображении\n" +
+                   "5. Возможный контекст или обстановку\n" +
+                   "Будьте краткими, но тщательными. Отформатируйте ваш ответ в легко читаемом формате Markdown.";
 
     const result = await model.generateContent([
       {
@@ -81,15 +81,15 @@ async function analyzeImage(imageBuffer, chatId) {
     ]);
 
     if (!result.response) {
-      throw new Error('No response from Gemini API');
+      throw new Error('Нет ответа от API Gemini');
     }
 
     const analysis = sanitizeMarkdown(result.response.text());
     analysisCache.set(imageHash, analysis);
     return analysis;
   } catch (error) {
-    logger.error('Error analyzing image:', error);
-    throw new Error(`Failed to analyze image: ${error.message}`);
+    logger.error('Ошибка при анализе изображения:', error);
+    throw new Error(`Не удалось проанализировать изображение: ${error.message}`);
   }
 }
 
@@ -103,26 +103,26 @@ async function handlePhoto(msg) {
     const imageBuffer = Buffer.from(imageResponse.data);
 
     if (imageBuffer.length > MAX_FILE_SIZE) {
-      throw new Error(`Image size (${imageBuffer.length} bytes) exceeds the maximum allowed size`);
+      throw new Error(`Размер изображения (${imageBuffer.length} байт) превышает максимально допустимый размер`);
     }
 
     const imageType = await checkImageType(imageBuffer);
     if (imageType === 'unknown') {
-      throw new Error('Unsupported image format. Please send a JPEG, PNG, or GIF image.');
+      throw new Error('Неподдерживаемый формат изображения. Пожалуйста, отправьте изображение в формате JPEG, PNG или GIF.');
     }
 
-    await bot.sendMessage(chatId, "I'm analyzing your image. This may take a moment...");
+    await bot.sendMessage(chatId, "Я анализирую ваше изображение. Это может занять некоторое время...");
     const analysis = await analyzeImage(imageBuffer, chatId);
     await bot.sendMessage(chatId, analysis, { parse_mode: 'MarkdownV2' });
   } catch (error) {
-    logger.error('Error in handlePhoto:', error);
-    let userMessage = "I'm sorry, but I couldn't analyze this image. ";
-    if (error.message.includes('maximum allowed size')) {
-      userMessage += "The image is too large. Please try sending a smaller image (under 4MB).";
-    } else if (error.message.includes('Unsupported image format')) {
+    logger.error('Ошибка при обработке фото:', error);
+    let userMessage = "Извините, но я не смог проанализировать это изображение. ";
+    if (error.message.includes('максимально допустимый размер')) {
+      userMessage += "Изображение слишком большое. Пожалуйста, попробуйте отправить изображение меньшего размера (до 4МБ).";
+    } else if (error.message.includes('Неподдерживаемый формат изображения')) {
       userMessage += error.message;
     } else {
-      userMessage += "An unexpected error occurred. Please try again later or with a different image.";
+      userMessage += "Произошла непредвиденная ошибка. Пожалуйста, попробуйте еще раз позже или с другим изображением.";
     }
     await bot.sendMessage(chatId, userMessage);
   }
@@ -130,36 +130,36 @@ async function handlePhoto(msg) {
 
 async function handleStart(msg) {
   const chatId = msg.chat.id;
-  const message = "Hello! I'm an advanced image analysis bot. Send me an image, and I'll provide a detailed description of what I see. You can also use these commands:\n\n" +
-                  "/help - Get usage instructions\n" +
-                  "/about - Learn more about my capabilities";
+  const message = "Привет! Я продвинутый бот для анализа изображений. Отправьте мне изображение, и я предоставлю подробное описание того, что вижу. Вы также можете использовать следующие команды:\n\n" +
+                  "/help - Получить инструкции по использованию\n" +
+                  "/about - Узнать больше о моих возможностях";
   await bot.sendMessage(chatId, message);
 }
 
 async function handleHelp(msg) {
   const chatId = msg.chat.id;
-  const message = "Here's how to use me:\n\n" +
-                  "1. Send me any image (JPEG, PNG, or GIF)\n" +
-                  "2. I'll analyze it and provide a detailed description\n" +
-                  "3. The analysis may take a few moments\n\n" +
-                  "Tips:\n" +
-                  "- Images should be under 4MB\n" +
-                  "- Clear, well-lit images work best\n" +
-                  "- I can identify objects, scenes, colors, text, and more\n" +
-                  "- For best results, send images with interesting content or scenes";
+  const message = "Вот как меня использовать:\n\n" +
+                  "1. Отправьте мне любое изображение (JPEG, PNG или GIF)\n" +
+                  "2. Я проанализирую его и предоставлю подробное описание\n" +
+                  "3. Анализ может занять несколько секунд\n\n" +
+                  "Советы:\n" +
+                  "- Размер изображений должен быть менее 4МБ\n" +
+                  "- Четкие, хорошо освещенные изображения дают лучшие результаты\n" +
+                  "- Я могу идентифицировать объекты, сцены, цвета, текст и многое другое\n" +
+                  "- Для наилучших результатов отправляйте изображения с интересным содержанием или сценами";
   await bot.sendMessage(chatId, message);
 }
 
 async function handleAbout(msg) {
   const chatId = msg.chat.id;
-  const message = "I'm an AI-powered image analysis bot using advanced machine learning to describe image contents. " +
-                  "My capabilities include:\n\n" +
-                  "- Object and scene recognition\n" +
-                  "- Color and visual element analysis\n" +
-                  "- Text detection in images\n" +
-                  "- Mood and atmosphere interpretation\n" +
-                  "- Contextual understanding of image settings\n\n" +
-                  "I'm powered by Google's Gemini AI and I'm constantly learning and improving!";
+  const message = "Я бот для анализа изображений, работающий на основе искусственного интеллекта и использующий продвинутое машинное обучение для описания содержимого изображений. " +
+                  "Мои возможности включают:\n\n" +
+                  "- Распознавание объектов и сцен\n" +
+                  "- Анализ цветов и визуальных элементов\n" +
+                  "- Обнаружение текста на изображениях\n" +
+                  "- Интерпретацию настроения и атмосферы\n" +
+                  "- Понимание контекста и обстановки на изображениях\n\n" +
+                  "Я работаю на базе Google Gemini AI и постоянно учусь и совершенствуюсь!";
   await bot.sendMessage(chatId, message);
 }
 
@@ -178,18 +178,18 @@ export default async function handler(req, res) {
         } else if (text === '/about') {
           await handleAbout(body.message);
         } else {
-          await bot.sendMessage(body.message.chat.id, "Please send me an image to analyze, or use /help for more information.");
+          await bot.sendMessage(body.message.chat.id, "Пожалуйста, отправьте мне изображение для анализа или используйте /help для получения дополнительной информации.");
         }
       }
     }
     res.status(200).send('OK');
   } catch (error) {
-    logger.error('Error in webhook handler:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    logger.error('Ошибка в обработчике вебхука:', error);
+    res.status(500).json({ error: 'Внутренняя ошибка сервера' });
   }
 }
 
-// For local testing only
+// Только для локального тестирования
 if (process.env.NODE_ENV === 'development') {
   const express = await import('express');
   const app = express.default();
@@ -199,9 +199,9 @@ if (process.env.NODE_ENV === 'development') {
   app.post('/webhook', handler);
 
   app.listen(PORT, () => {
-    logger.info(`Local server running on port ${PORT}`);
-    logger.info(`Webhook URL: http://localhost:${PORT}/webhook`);
+    logger.info(`Локальный сервер запущен на порту ${PORT}`);
+    logger.info(`URL вебхука: http://localhost:${PORT}/webhook`);
   });
 }
 
-logger.info('Advanced bot handler initialized');
+logger.info('Обработчик продвинутого бота инициализирован');
