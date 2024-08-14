@@ -30,38 +30,86 @@ const logger = {
 async function analyzeImage(imageBuffer, chatId) {
   try {
     logger.info('Analyzing image with Gemini...');
-    const model = genAI.getGenerativeModel({
-      generationConfig: {
-        temperature: 0,
-        // topP: 0.95,
-        // topK: 64,
-        // maxOutputTokens: 8192,
-        // responseMimeType: "text/plain",
-      },
-      model: 'gemini-1.5-flash'
-    });
+    let model;
+    try {
+      model = genAI.getGenerativeModel({
+        generationConfig: {
+          temperature: 0,
+          // topP: 0.95,
+          // topK: 64,
+          // maxOutputTokens: 8192,
+          // responseMimeType: "text/plain",
+        },
+        model: 'gemini-1.5-flash'
+      });
+      logger.info('Gemini model initialized successfully');
+    } catch (modelError) {
+      logger.error('Error initializing Gemini model:', modelError);
+      throw new Error(`Failed to initialize Gemini model: ${modelError.message}`);
+    }
 
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          data: imageBuffer.toString('base64'),
-          mimeType: 'image/jpeg'
-        }
-      },
-      { text: "Analyze this image and describe what you see. Provide your analysis in Markdown format, using appropriate headers, lists, and emphasis where relevant." },
-    ]);
+    let result;
+    try {
+      result = await model.generateContent([
+        {
+          inlineData: {
+            data: imageBuffer.toString('base64'),
+            mimeType: 'image/jpeg'
+          }
+        },
+        { text: "Analyze this image and describe what you see. Provide your analysis in Markdown format, using appropriate headers, lists, and emphasis where relevant." },
+      ]);
+      logger.info('Gemini API call completed');
+    } catch (generateError) {
+      logger.error('Error generating content with Gemini:', generateError);
+      logger.error('Full generate error object:', JSON.stringify(generateError, null, 2));
+      throw new Error(`Failed to generate content with Gemini: ${generateError.message}`);
+    }
 
-    const generatedResponse = await result.response;
-    logger.info('Analysis complete');
+    logger.info('Checking Gemini API response...');
+    if (!result) {
+      logger.error('No result object returned from Gemini API');
+      throw new Error('No result received from Gemini API');
+    }
 
-    // Send the analysis back to the user
-    logger.info('Sending response to user...');
+    if (!result.response) {
+      logger.error('No response in result object:', JSON.stringify(result, null, 2));
+      throw new Error('No response in Gemini API result');
+    }
+
+    const generatedResponse = result.response;
+    logger.info('Response object retrieved from result');
+
+    if (!generatedResponse.text) {
+      logger.error('No text in generated response:', JSON.stringify(generatedResponse, null, 2));
+      throw new Error('No text content in Gemini API response');
+    }
+
     const markdown = generatedResponse.text();
-    await bot.sendMessage(chatId, markdown, { parse_mode: 'Markdown' });
-    logger.info('Response sent');
+    logger.info('Response content:', markdown.substring(0, 100) + '...');
+
+    try {
+      await bot.sendMessage(chatId, markdown, { parse_mode: 'Markdown' });
+      logger.info('Response sent successfully to user');
+    } catch (sendError) {
+      logger.error('Error sending message to user:', sendError);
+      throw new Error(`Failed to send analysis to user: ${sendError.message}`);
+    }
+
   } catch (error) {
-    logger.error('Error analyzing image with Gemini:', error);
-    throw new Error('Failed to analyze image with Gemini API');
+    logger.error('Error in analyzeImage function:', error);
+    logger.error('Full error object:', JSON.stringify(error, null, 2));
+    logger.error('Error stack:', error.stack);
+
+    if (error.message.includes('SAFETY') || error.message.includes('blocked due to safety')) {
+      throw new Error('The image content could not be analyzed due to safety concerns. Please try a different image.');
+    } else if (error.message.includes('rate limit')) {
+      throw new Error('Gemini API rate limit exceeded. Please try again later.');
+    } else if (error.message.includes('network')) {
+      throw new Error('Network error occurred while connecting to Gemini API. Please check your internet connection.');
+    } else {
+      throw new Error(`Failed to analyze image with Gemini API: ${error.message}`);
+    }
   }
 }
 
@@ -110,8 +158,12 @@ async function handlePhoto(msg) {
       userMessage = "I'm currently experiencing high demand. Please try again in a few minutes.";
     } else if (error.message.includes('network')) {
       userMessage = "I'm having trouble connecting to my image analysis service. Please try again later.";
+    } else if (error.message.includes('Failed to get file link')) {
+      userMessage = "I had trouble accessing the image you sent. Could you try uploading it again?";
+    } else if (error.message.includes('Failed to download image')) {
+      userMessage = "I couldn't download the image you sent. There might be an issue with the file. Could you try sending a different image?";
     } else {
-      userMessage = `I encountered an error while processing your image. Here's what happened: ${error.message}`;
+      userMessage = `I encountered an unexpected error while processing your image. Here's what happened: ${error.message}`;
     }
 
     await bot.sendMessage(chatId, userMessage);
